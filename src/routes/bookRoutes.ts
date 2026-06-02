@@ -6,7 +6,8 @@ import {
   updateBook,
   deleteBook,
 } from '../services/bookService';
-import { getReviewsByBookId, getAverageRating } from '../services/reviewService';
+import { getReviewsByBookId, getAverageRating, createReview } from '../services/reviewService';
+import { createReviewSchema } from '../validators/reviewValidator';
 import { createBookSchema, updateBookSchema } from '../validators/bookValidator';
 import { authors } from '../data';
 import { publishers } from '../data';
@@ -143,6 +144,37 @@ router.delete('/:id', (req: Request, res: Response) => {
 
   // 204 No Content — kustutamine õnnestus, vastus on tühi
   res.status(204).send();
+});
+
+// POST /api/v1/books/:id/reviews — uue arvustuse lisamine raamatule
+router.post('/:id/reviews', (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+
+  if (isNaN(id)) {
+    res.status(400).json({ error: 'Vigane ID formaat' });
+    return;
+  }
+
+  // Kontrollime et raamat eksisteerib enne arvustuse lisamist
+  const book = getBookById(id);
+  if (!book) {
+    res.status(404).json({ error: 'Raamatut ei leitud' });
+    return;
+  }
+
+  const result = createReviewSchema.safeParse(req.body);
+
+  if (!result.success) {
+    const details = result.error.errors.map((e) => ({
+      field: e.path.join('.'),
+      message: e.message,
+    }));
+    res.status(400).json({ error: 'Vigased andmed', details });
+    return;
+  }
+
+  const newReview = createReview(id, result.data);
+  res.status(201).json(newReview);
 });
 
 // GET /api/v1/books/:id/reviews — kõik arvustused konkreetsele raamatule

@@ -2,6 +2,8 @@ import express from 'express';
 import bookRoutes from './routes/bookRoutes';
 import authorRoutes from './routes/authorRoutes';
 import publisherRoutes from './routes/publisherRoutes';
+import reviewRoutes from './routes/reviewRoutes';
+import genreRoutes from './routes/genreRoutes';
 
 const app = express();
 
@@ -12,6 +14,8 @@ app.use(express.json());
 app.use('/api/v1/books', bookRoutes);
 app.use('/api/v1/authors', authorRoutes);
 app.use('/api/v1/publishers', publisherRoutes);
+app.use('/api/v1/reviews', reviewRoutes);
+app.use('/api/v1/genres', genreRoutes);
 
 // Serveri elutähise kontroll
 app.get('/api/v1/health', (_req, res) => {
