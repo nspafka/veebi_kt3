@@ -5,9 +5,29 @@ import { CreatePublisherInput, UpdatePublisherInput } from '../validators/publis
 // Järgmise ID arvutamiseks
 let nextId = Math.max(...publishers.map((p) => p.id)) + 1;
 
-// Kõikide kirjastuste tagastamine
-export function getAllPublishers(): Publisher[] {
-  return publishers;
+// Filtreerimise parameetrite tüüp
+export interface PublisherQueryParams {
+  name?: string;
+  country?: string;
+}
+
+// Kõikide kirjastuste tagastamine koos filtreerimisega
+export function getAllPublishers(params: PublisherQueryParams = {}): Publisher[] {
+  let result = [...publishers];
+
+  // Filtreerimine nime järgi — otsib osalist vastet
+  if (params.name) {
+    const nameLower = params.name.toLowerCase();
+    result = result.filter((p) => p.name.toLowerCase().includes(nameLower));
+  }
+
+  // Filtreerimine riigi järgi — otsib osalist vastet
+  if (params.country) {
+    const countryLower = params.country.toLowerCase();
+    result = result.filter((p) => p.country.toLowerCase().includes(countryLower));
+  }
+
+  return result;
 }
 
 // Ühe kirjastuse otsimine ID järgi

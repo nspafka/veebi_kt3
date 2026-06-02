@@ -5,9 +5,39 @@ import { CreateAuthorInput, UpdateAuthorInput } from '../validators/authorValida
 // Järgmise ID arvutamiseks
 let nextId = Math.max(...authors.map((a) => a.id)) + 1;
 
-// Kõikide autorite tagastamine
-export function getAllAuthors(): Author[] {
-  return authors;
+// Filtreerimise ja sorteerimise parameetrite tüüp
+export interface AuthorQueryParams {
+  lastName?: string;
+  nationality?: string;
+  sortBy?: string;
+  order?: string;
+}
+
+// Kõikide autorite tagastamine koos filtreerimise ja sorteerimisega
+export function getAllAuthors(params: AuthorQueryParams = {}): Author[] {
+  let result = [...authors];
+
+  // Filtreerimine perekonnanime järgi — otsib osalist vastet
+  if (params.lastName) {
+    const lastNameLower = params.lastName.toLowerCase();
+    result = result.filter((a) => a.lastName.toLowerCase().includes(lastNameLower));
+  }
+
+  // Filtreerimine rahvuse järgi — otsib osalist vastet
+  if (params.nationality) {
+    const nationalityLower = params.nationality.toLowerCase();
+    result = result.filter((a) => a.nationality.toLowerCase().includes(nationalityLower));
+  }
+
+  // Sorteerimine perekonnanime järgi
+  if (params.sortBy === 'lastName') {
+    result.sort((a, b) => {
+      const comparison = a.lastName.toLowerCase().localeCompare(b.lastName.toLowerCase());
+      return params.order === 'desc' ? -comparison : comparison;
+    });
+  }
+
+  return result;
 }
 
 // Ühe autori otsimine ID järgi
