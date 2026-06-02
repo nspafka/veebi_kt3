@@ -4,6 +4,7 @@ import authorRoutes from './routes/authorRoutes';
 import publisherRoutes from './routes/publisherRoutes';
 import reviewRoutes from './routes/reviewRoutes';
 import genreRoutes from './routes/genreRoutes';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app = express();
 
@@ -21,5 +22,11 @@ app.use('/api/v1/genres', genreRoutes);
 app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// 404 — peab olema pärast kõiki marsruute
+app.use(notFoundHandler);
+
+// Üldine veatöötleja — peab olema viimane middleware
+app.use(errorHandler);
 
 export default app;
