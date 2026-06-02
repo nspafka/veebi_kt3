@@ -5,16 +5,28 @@ import {
   createPublisher,
   updatePublisher,
   deletePublisher,
+  PublisherQueryParams,
 } from '../services/publisherService';
 import { getAllBooks } from '../services/bookService';
 import { createPublisherSchema, updatePublisherSchema } from '../validators/publisherValidator';
+import { parsePagination, paginate } from '../utils/pagination';
 
 const router = Router();
 
-// GET /api/v1/publishers — kõikide kirjastuste nimekiri
-router.get('/', (_req: Request, res: Response) => {
-  const allPublishers = getAllPublishers();
-  res.json(allPublishers);
+// GET /api/v1/publishers — kirjastuste nimekiri koos filtreerimise ja leheküljestamisega
+router.get('/', (req: Request, res: Response) => {
+  const params: PublisherQueryParams = {
+    name: req.query.name as string | undefined,
+    country: req.query.country as string | undefined,
+  };
+
+  const filtered = getAllPublishers(params);
+
+  // Leheküljestamine kirjastuste nimekirjale
+  const { page, limit } = parsePagination(req.query.page, req.query.limit);
+  const result = paginate(filtered, page, limit);
+
+  res.json(result);
 });
 
 // GET /api/v1/publishers/:id — ühe kirjastuse andmed

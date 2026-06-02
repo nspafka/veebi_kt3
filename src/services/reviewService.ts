@@ -5,9 +5,35 @@ import { CreateReviewInput, UpdateReviewInput } from '../validators/reviewValida
 // Järgmise ID jaoks
 let nextId = Math.max(...reviews.map((r) => r.id)) + 1;
 
-// Kõik arvustused kindlale raamatule
-export function getReviewsByBookId(bookId: number): Review[] {
-  return reviews.filter((r) => r.bookId === bookId);
+// Filtreerimise ja sorteerimise parameetrite tüüp
+export interface ReviewQueryParams {
+  rating?: string;
+  sortBy?: string;
+  order?: string;
+}
+
+// Kõik arvustused kindlale raamatule koos filtreerimise ja sorteerimisega
+export function getReviewsByBookId(bookId: number, params: ReviewQueryParams = {}): Review[] {
+  let result = reviews.filter((r) => r.bookId === bookId);
+
+  // Filtreerimine hinde järgi — täpne vaste
+  if (params.rating) {
+    const rating = parseInt(params.rating);
+    if (!isNaN(rating)) {
+      result = result.filter((r) => r.rating === rating);
+    }
+  }
+
+  // Sorteerimine loomisaja järgi
+  if (params.sortBy === 'createdAt') {
+    result.sort((a, b) => {
+      // Teisendame kuupäevad arvudeks võrdluseks
+      const comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return params.order === 'desc' ? -comparison : comparison;
+    });
+  }
+
+  return result;
 }
 
 // Ühe arvustuse otsimine ID järgi
@@ -17,7 +43,7 @@ export function getReviewById(id: number): Review | undefined {
 
 // Keskmise hinde arvutamine — tagastab null kui arvustusi pole
 export function getAverageRating(bookId: number): number | null {
-  const bookReviews = getReviewsByBookId(bookId);
+  const bookReviews = reviews.filter((r) => r.bookId === bookId);
   if (bookReviews.length === 0) return null;
 
   // Liidame kõik hinded kokku ja jagame arvustuste arvuga

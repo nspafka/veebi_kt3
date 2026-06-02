@@ -5,19 +5,38 @@ import {
   createBook,
   updateBook,
   deleteBook,
+  BookQueryParams,
 } from '../services/bookService';
 import { getReviewsByBookId, getAverageRating, createReview } from '../services/reviewService';
-import { createReviewSchema } from '../validators/reviewValidator';
 import { createBookSchema, updateBookSchema } from '../validators/bookValidator';
-import { authors } from '../data';
-import { publishers } from '../data';
+import { createReviewSchema } from '../validators/reviewValidator';
+import { authors, publishers } from '../data';
+import { parsePagination, paginate } from '../utils/pagination';
 
 const router = Router();
 
-// GET /api/v1/books — kõikide raamatute nimekiri
-router.get('/', (_req: Request, res: Response) => {
-  const allBooks = getAllBooks();
-  res.json(allBooks);
+// GET /api/v1/books — raamatute nimekiri koos filtreerimise, sorteerimise ja leheküljestamisega
+router.get('/', (req: Request, res: Response) => {
+  // Kogume kõik toetatud query parameetrid
+  const params: BookQueryParams = {
+    title: req.query.title as string | undefined,
+    author: req.query.author as string | undefined,
+    genre: req.query.genre as string | undefined,
+    language: req.query.language as string | undefined,
+    year: req.query.year as string | undefined,
+    publisher: req.query.publisher as string | undefined,
+    sortBy: req.query.sortBy as string | undefined,
+    order: req.query.order as string | undefined,
+  };
+
+  // Rakendame filtreerimise ja sorteerimise
+  const filtered = getAllBooks(params);
+
+  // Parsime leheküljestamise parameetrid ja rakendame leheküljestamise
+  const { page, limit } = parsePagination(req.query.page, req.query.limit);
+  const result = paginate(filtered, page, limit);
+
+  res.json(result);
 });
 
 // GET /api/v1/books/:id — ühe raamatu andmed ID järgi
@@ -177,7 +196,7 @@ router.post('/:id/reviews', (req: Request, res: Response) => {
   res.status(201).json(newReview);
 });
 
-// GET /api/v1/books/:id/reviews — kõik arvustused konkreetsele raamatule
+// GET /api/v1/books/:id/reviews — arvustused koos filtreerimise ja sorteerimisega
 router.get('/:id/reviews', (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
 
@@ -193,7 +212,13 @@ router.get('/:id/reviews', (req: Request, res: Response) => {
     return;
   }
 
-  const bookReviews = getReviewsByBookId(id);
+  // Edastame query parameetrid teenusele filtreerimiseks ja sorteerimiseks
+  const bookReviews = getReviewsByBookId(id, {
+    rating: req.query.rating as string | undefined,
+    sortBy: req.query.sortBy as string | undefined,
+    order: req.query.order as string | undefined,
+  });
+
   res.json(bookReviews);
 });
 

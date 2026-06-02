@@ -5,16 +5,30 @@ import {
   createAuthor,
   updateAuthor,
   deleteAuthor,
+  AuthorQueryParams,
 } from '../services/authorService';
 import { getAllBooks } from '../services/bookService';
 import { createAuthorSchema, updateAuthorSchema } from '../validators/authorValidator';
+import { parsePagination, paginate } from '../utils/pagination';
 
 const router = Router();
 
-// GET /api/v1/authors — kõikide autorite nimekiri
-router.get('/', (_req: Request, res: Response) => {
-  const allAuthors = getAllAuthors();
-  res.json(allAuthors);
+// GET /api/v1/authors — autorite nimekiri koos filtreerimise ja leheküljestamisega
+router.get('/', (req: Request, res: Response) => {
+  const params: AuthorQueryParams = {
+    lastName: req.query.lastName as string | undefined,
+    nationality: req.query.nationality as string | undefined,
+    sortBy: req.query.sortBy as string | undefined,
+    order: req.query.order as string | undefined,
+  };
+
+  const filtered = getAllAuthors(params);
+
+  // Leheküljestamine autorite nimekirjale
+  const { page, limit } = parsePagination(req.query.page, req.query.limit);
+  const result = paginate(filtered, page, limit);
+
+  res.json(result);
 });
 
 // GET /api/v1/authors/:id — ühe autori andmed
