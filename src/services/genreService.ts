@@ -1,31 +1,31 @@
-import { Genre } from '../models/Genre';
-import { genres } from '../data';
+import { Genre } from '@prisma/client';
+import prisma from '../lib/prisma';
 import { CreateGenreInput } from '../validators/genreValidator';
+import { handlePrismaError } from '../utils/prismaErrors';
 
-// Järgmise ID arvutamiseks
-let nextId = Math.max(...genres.map((g) => g.id)) + 1;
-
-// Kõikide žanrite tagastamine
-export function getAllGenres(): Genre[] {
-  return genres;
+// Kõikide žanrite päring — žanreid on vähe, leheküljestamine pole vajalik
+export async function getAllGenres(): Promise<Genre[]> {
+  return prisma.genre.findMany({ orderBy: { name: 'asc' } });
 }
 
-// Ühe žanri otsimine ID järgi
-export function getGenreById(id: number): Genre | undefined {
-  return genres.find((g) => g.id === id);
+// Ühe žanri päring ID järgi
+export async function getGenreById(id: number): Promise<Genre | null> {
+  return prisma.genre.findUnique({ where: { id } });
 }
 
-// Kontrollib, kas sama nimega žanr on juba olemas — kasutatakse duplikaadi kontrollimiseks marsruudis
-export function genreNameExists(name: string): boolean {
-  return genres.some((g) => g.name.toLowerCase() === name.toLowerCase());
+// Kontrollib, kas sama nimega žanr on juba andmebaasis
+export async function genreNameExists(name: string): Promise<boolean> {
+  const existing = await prisma.genre.findFirst({
+    where: { name: { equals: name, mode: 'insensitive' } },
+  });
+  return existing !== null;
 }
 
-// Uue žanri lisamine
-export function createGenre(input: CreateGenreInput): Genre {
-  const newGenre: Genre = {
-    id: nextId++,
-    name: input.name,
-  };
-  genres.push(newGenre);
-  return newGenre;
+// Uue žanri loomine
+export async function createGenre(input: CreateGenreInput): Promise<Genre> {
+  try {
+    return await prisma.genre.create({ data: { name: input.name } });
+  } catch (e) {
+    return handlePrismaError(e);
+  }
 }

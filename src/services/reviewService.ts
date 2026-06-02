@@ -1,9 +1,7 @@
-import { Review } from '../models/Review';
-import { reviews } from '../data';
+import { Review, Prisma } from '@prisma/client';
+import prisma from '../lib/prisma';
 import { CreateReviewInput, UpdateReviewInput } from '../validators/reviewValidator';
-
-// Järgmise ID jaoks
-let nextId = Math.max(...reviews.map((r) => r.id)) + 1;
+import { handlePrismaError } from '../utils/prismaErrors';
 
 // Filtreerimise ja sorteerimise parameetrite tüüp
 export interface ReviewQueryParams {
@@ -12,75 +10,76 @@ export interface ReviewQueryParams {
   order?: string;
 }
 
-// Kõik arvustused kindlale raamatule koos filtreerimise ja sorteerimisega
-export function getReviewsByBookId(bookId: number, params: ReviewQueryParams = {}): Review[] {
-  let result = reviews.filter((r) => r.bookId === bookId);
+// Kõik arvustused konkreetsele raamatule koos filtreerimise ja sorteerimisega
+export async function getReviewsByBookId(bookId: number, params: ReviewQueryParams = {}): Promise<Review[]> {
+  const where: Prisma.ReviewWhereInput = { bookId };
 
-  // Filtreerimine hinde järgi — täpne vaste
+  // Hinde täpne filter
   if (params.rating) {
     const rating = parseInt(params.rating);
     if (!isNaN(rating)) {
-      result = result.filter((r) => r.rating === rating);
+      where.rating = rating;
     }
   }
 
-  // Sorteerimine loomisaja järgi
-  if (params.sortBy === 'createdAt') {
-    result.sort((a, b) => {
-      // Teisendame kuupäevad arvudeks võrdluseks
-      const comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      return params.order === 'desc' ? -comparison : comparison;
-    });
-  }
+  // Sorteerimine loomisaja järgi — vaikimisi uuemad ees
+  const orderBy: Prisma.ReviewOrderByWithRelationInput =
+    params.sortBy === 'createdAt'
+      ? { createdAt: params.order === 'asc' ? 'asc' : 'desc' }
+      : { createdAt: 'desc' };
 
-  return result;
+  return prisma.review.findMany({ where, orderBy });
 }
 
-// Ühe arvustuse otsimine ID järgi
-export function getReviewById(id: number): Review | undefined {
-  return reviews.find((r) => r.id === id);
+// Ühe arvustuse päring ID järgi
+export async function getReviewById(id: number): Promise<Review | null> {
+  return prisma.review.findUnique({ where: { id } });
 }
 
-// Keskmise hinde arvutamine — tagastab null kui arvustusi pole
-export function getAverageRating(bookId: number): number | null {
-  const bookReviews = reviews.filter((r) => r.bookId === bookId);
-  if (bookReviews.length === 0) return null;
+// Keskmise hinde arvutamine Prisma agregatsiooniga
+export async function getAverageRating(bookId: number): Promise<number | null> {
+  const result = await prisma.review.aggregate({
+    where: { bookId },
+    _avg: { rating: true },
+    _count: { rating: true },
+  });
 
-  // Liidame kõik hinded kokku ja jagame arvustuste arvuga
-  const sum = bookReviews.reduce((acc, r) => acc + r.rating, 0);
-  const average = sum / bookReviews.length;
+  // Tagastame null kui arvustusi pole
+  if (result._count.rating === 0) return null;
 
   // Ümardame kahe kümnendkohani
-  return Math.round(average * 100) / 100;
+  const avg = result._avg.rating;
+  return avg !== null ? Math.round(avg * 100) / 100 : null;
 }
 
-// Uue arvustuse lisamine
-export function createReview(bookId: number, input: CreateReviewInput): Review {
-  const newReview: Review = {
-    id: nextId++,
-    bookId,
-    ...input,
-    createdAt: new Date().toISOString(),
-  };
-  reviews.push(newReview);
-  return newReview;
+// Uue arvustuse loomine
+export async function createReview(bookId: number, input: CreateReviewInput): Promise<Review> {
+  return prisma.review.create({
+    data: { bookId, ...input },
+  });
 }
 
-// Arvustuse uuendamine
-export function updateReview(id: number, input: UpdateReviewInput): Review | undefined {
-  const index = reviews.findIndex((r) => r.id === id);
-  if (index === -1) return undefined;
-
-  const updated: Review = { ...reviews[index], ...input };
-  reviews[index] = updated;
-  return updated;
+// Arvustuse uuendamine — tagastab null kui ei leita
+export async function updateReview(id: number, input: UpdateReviewInput): Promise<Review | null> {
+  try {
+    return await prisma.review.update({ where: { id }, data: input });
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return null;
+    }
+    return handlePrismaError(e);
+  }
 }
 
-// Arvustuse kustutamine
-export function deleteReview(id: number): boolean {
-  const index = reviews.findIndex((r) => r.id === id);
-  if (index === -1) return false;
-
-  reviews.splice(index, 1);
-  return true;
+// Arvustuse kustutamine — tagastab false kui ei leita
+export async function deleteReview(id: number): Promise<boolean> {
+  try {
+    await prisma.review.delete({ where: { id } });
+    return true;
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return false;
+    }
+    return handlePrismaError(e);
+  }
 }

@@ -1,18 +1,20 @@
 // Leheküljestamise abifunktsioonid — kasutatakse kõikides marsruutides
 
-export interface PaginationResult<T> {
-  data: T[];
-  pagination: {
-    currentPage: number;
-    totalPages: number;
-    totalItems: number;
-    itemsPerPage: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-  };
+export interface PaginationMeta {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
-// Parsib lehekülje ja limiidi query parameetritest — tagastab kindlad vaikeväärtused kui parameetrid puuduvad
+export interface PaginationResult<T> {
+  data: T[];
+  pagination: PaginationMeta;
+}
+
+// Parsib lehekülje ja limiidi query parameetritest — tagastab vaikeväärtused kui parameetrid puuduvad
 export function parsePagination(pageParam: unknown, limitParam: unknown): { page: number; limit: number } {
   // Vaikimisi esimene lehekülg, 10 kirjet lehel
   const page = Math.max(1, parseInt(String(pageParam ?? '1')) || 1);
@@ -20,26 +22,25 @@ export function parsePagination(pageParam: unknown, limitParam: unknown): { page
   return { page, limit };
 }
 
-// Rakendab leheküljestamist massiiviie — lõikab välja õige lõigu ja lisab metaandmed
+// Ehitab leheküljestamise metaandmed andmebaasi päringu tulemuse põhjal
+// Kasutatakse Prisma teenustes kus lehestamine toimub andmebaasi tasemel
+export function buildPaginationMeta(totalItems: number, page: number, limit: number): PaginationMeta {
+  const totalPages = Math.ceil(totalItems / limit) || 1;
+  return {
+    currentPage: page,
+    totalPages,
+    totalItems,
+    itemsPerPage: limit,
+    hasNextPage: page < totalPages,
+    hasPreviousPage: page > 1,
+  };
+}
+
+// Rakendab leheküljestamist massiivis — kasutatakse väikeste andmekogumite puhul
 export function paginate<T>(items: T[], page: number, limit: number): PaginationResult<T> {
   const totalItems = items.length;
-  const totalPages = Math.ceil(totalItems / limit);
-
-  // Arvutame algus- ja lõppindeksi slice jaoks
+  const meta = buildPaginationMeta(totalItems, page, limit);
   const startIndex = (page - 1) * limit;
-  const endIndex = startIndex + limit;
-
-  const data = items.slice(startIndex, endIndex);
-
-  return {
-    data,
-    pagination: {
-      currentPage: page,
-      totalPages,
-      totalItems,
-      itemsPerPage: limit,
-      hasNextPage: page < totalPages,
-      hasPreviousPage: page > 1,
-    },
-  };
+  const data = items.slice(startIndex, startIndex + limit);
+  return { data, pagination: meta };
 }

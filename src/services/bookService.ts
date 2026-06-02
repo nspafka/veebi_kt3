@@ -1,10 +1,12 @@
-import { Book } from '../models/Book';
-import { books } from '../data';
-import { authors, publishers } from '../data';
+import { Prisma } from '@prisma/client';
+import prisma from '../lib/prisma';
 import { CreateBookInput, UpdateBookInput } from '../validators/bookValidator';
+import { handlePrismaError } from '../utils/prismaErrors';
 
-// Järgmise ID arvutamiseks — leiame suurima olemasoleva ID ja lisame 1
-let nextId = Math.max(...books.map((b) => b.id)) + 1;
+// Prisma tagastab raamatu koos seotud objektidega — defineerime tüübi Prisma abiga
+export type BookWithRelations = Prisma.BookGetPayload<{
+  include: { author: true; publisher: true; genres: true };
+}>;
 
 // Filtreerimise ja sorteerimise parameetrite tüüp
 export interface BookQueryParams {
@@ -18,119 +20,186 @@ export interface BookQueryParams {
   order?: string;
 }
 
-// Kõikide raamatute tagastamine koos filtreerimise ja sorteerimisega
-export function getAllBooks(params: BookQueryParams = {}): Book[] {
-  let result = [...books];
+// Ehitab Prisma where klausli query parameetritest
+function buildWhereClause(params: BookQueryParams): Prisma.BookWhereInput {
+  const where: Prisma.BookWhereInput = {};
 
-  // Filtreerimine pealkirja järgi — otsib osalist vastet (sõltumata suur/väiketähtedest)
+  // Pealkirja osaline otsing (ei erista suuri/väikesi tähti)
   if (params.title) {
-    const titleLower = params.title.toLowerCase();
-    result = result.filter((b) => b.title.toLowerCase().includes(titleLower));
+    where.title = { contains: params.title, mode: 'insensitive' };
   }
 
-  // Filtreerimine autori nime järgi — otsib eesnime ja perekonnanime kombinatsiooni
+  // Autori nime otsing — otsib nii eesnimest kui perekonnanimest
   if (params.author) {
-    const authorLower = params.author.toLowerCase();
-    result = result.filter((b) => {
-      const author = authors.find((a) => a.id === b.authorId);
-      if (!author) return false;
-      const fullName = `${author.firstName} ${author.lastName}`.toLowerCase();
-      return fullName.includes(authorLower);
-    });
+    where.author = {
+      OR: [
+        { firstName: { contains: params.author, mode: 'insensitive' } },
+        { lastName: { contains: params.author, mode: 'insensitive' } },
+      ],
+    };
   }
 
-  // Filtreerimine žanri nime järgi — otsib raamatu genres massiivi kaudu
+  // Žanri otsing — raamat peab kuuluma vähemalt ühte sobivasse žanrisse
   if (params.genre) {
-    const genreLower = params.genre.toLowerCase();
-    // Impordime žanrid otse andmefailist et vältida tsüklilist sõltuvust
-    const { genres } = require('../data');
-    result = result.filter((b) => {
-      return b.genres.some((genreId: number) => {
-        const genre = genres.find((g: { id: number; name: string }) => g.id === genreId);
-        return genre?.name.toLowerCase().includes(genreLower);
-      });
-    });
+    where.genres = { some: { name: { contains: params.genre, mode: 'insensitive' } } };
   }
 
-  // Filtreerimine keele järgi — täpne vaste (sõltumata suur/väiketähtedest)
+  // Keele täpne otsing (ei erista suuri/väikesi tähti)
   if (params.language) {
-    const langLower = params.language.toLowerCase();
-    result = result.filter((b) => b.language.toLowerCase() === langLower);
+    where.language = { equals: params.language, mode: 'insensitive' };
   }
 
-  // Filtreerimine avaldamisaasta järgi — täpne aasta
+  // Avaldamisaasta täpne otsing
   if (params.year) {
     const year = parseInt(params.year);
     if (!isNaN(year)) {
-      result = result.filter((b) => b.publishedYear === year);
+      where.publishedYear = year;
     }
   }
 
-  // Filtreerimine kirjastuse nime järgi — otsib osalist vastet
+  // Kirjastuse nime osaline otsing
   if (params.publisher) {
-    const publisherLower = params.publisher.toLowerCase();
-    result = result.filter((b) => {
-      const publisher = publishers.find((p) => p.id === b.publisherId);
-      return publisher?.name.toLowerCase().includes(publisherLower);
-    });
+    where.publisher = { name: { contains: params.publisher, mode: 'insensitive' } };
   }
 
-  // Sorteerimine — toetab pealkirja ja avaldamisaasta järgi sorteerimist
+  return where;
+}
+
+// Ehitab Prisma orderBy klausli sorteerimise parameetritest
+function buildOrderBy(params: BookQueryParams): Prisma.BookOrderByWithRelationInput {
   if (params.sortBy === 'title') {
-    result.sort((a, b) => {
-      // Väiketähtedesse teisendamine et sorteerimine oleks ühtne
-      const comparison = a.title.toLowerCase().localeCompare(b.title.toLowerCase());
-      return params.order === 'desc' ? -comparison : comparison;
-    });
-  } else if (params.sortBy === 'publishedYear') {
-    result.sort((a, b) => {
-      const comparison = a.publishedYear - b.publishedYear;
-      return params.order === 'desc' ? -comparison : comparison;
-    });
+    return { title: params.order === 'desc' ? 'desc' : 'asc' };
   }
-
-  return result;
+  if (params.sortBy === 'publishedYear') {
+    return { publishedYear: params.order === 'desc' ? 'desc' : 'asc' };
+  }
+  // Vaikimisi uuemad ees
+  return { createdAt: 'desc' };
 }
 
-// Ühe raamatu otsimine ID järgi — tagastab undefined kui ei leita
-export function getBookById(id: number): Book | undefined {
-  return books.find((b) => b.id === id);
+// Kõikide raamatute päring koos filtreerimise, sorteerimise ja leheküljestamisega
+// Tagastab andmed ja koguarvu DB taseme leheküljestamiseks
+export async function getAllBooks(
+  params: BookQueryParams,
+  page: number,
+  limit: number
+): Promise<{ data: BookWithRelations[]; totalItems: number }> {
+  const where = buildWhereClause(params);
+  const orderBy = buildOrderBy(params);
+  const skip = (page - 1) * limit;
+
+  // Paralleelpäring — andmed ja koguarv korraga efektiivsuse jaoks
+  const [data, totalItems] = await Promise.all([
+    prisma.book.findMany({
+      where,
+      orderBy,
+      skip,
+      take: limit,
+      include: { author: true, publisher: true, genres: true },
+    }),
+    prisma.book.count({ where }),
+  ]);
+
+  return { data, totalItems };
 }
 
-// Uue raamatu lisamine — genereerib automaatselt ID, createdAt ja updatedAt
-export function createBook(input: CreateBookInput): Book {
-  const now = new Date().toISOString();
-  const newBook: Book = {
-    id: nextId++,
-    ...input,
-    createdAt: now,
-    updatedAt: now,
-  };
-  books.push(newBook);
-  return newBook;
+// Ühe raamatu päring ID järgi — tagastab null kui ei leita
+export async function getBookById(id: number): Promise<BookWithRelations | null> {
+  return prisma.book.findUnique({
+    where: { id },
+    include: { author: true, publisher: true, genres: true },
+  });
 }
 
-// Olemasoleva raamatu uuendamine — uuendab ainult saadetud väljad
-export function updateBook(id: number, input: UpdateBookInput): Book | undefined {
-  // Leiame raamatu indeksi massiivis
-  const index = books.findIndex((b) => b.id === id);
-  if (index === -1) return undefined;
-
-  // Uuendame raamatut ja seame updatedAt praegusele ajale
-  const updated: Book = {
-    ...books[index],
-    ...input,
-    updatedAt: new Date().toISOString(),
-  };
-  books[index] = updated;
-  return updated;
+// Kõik raamatud konkreetse autori järgi
+export async function getBooksByAuthorId(authorId: number): Promise<BookWithRelations[]> {
+  return prisma.book.findMany({
+    where: { authorId },
+    include: { author: true, publisher: true, genres: true },
+  });
 }
 
-// Raamatu kustutamine ID järgi — tagastab true kui kustutati, false kui ei leitud
-export function deleteBook(id: number): boolean {
-  const index = books.findIndex((b) => b.id === id);
-  if (index === -1) return false;
+// Kõik raamatud konkreetse kirjastuse järgi
+export async function getBooksByPublisherId(publisherId: number): Promise<BookWithRelations[]> {
+  return prisma.book.findMany({
+    where: { publisherId },
+    include: { author: true, publisher: true, genres: true },
+  });
+}
 
-  books.splice(index, 1);
-  return true;
+// Kõik raamatud konkreetse žanri järgi
+export async function getBooksByGenreId(genreId: number): Promise<BookWithRelations[]> {
+  return prisma.book.findMany({
+    where: { genres: { some: { id: genreId } } },
+    include: { author: true, publisher: true, genres: true },
+  });
+}
+
+// Uue raamatu loomine — seostab žanrid läbi connect operatsiooni
+export async function createBook(input: CreateBookInput): Promise<BookWithRelations> {
+  try {
+    return await prisma.book.create({
+      data: {
+        title: input.title,
+        isbn: input.isbn,
+        publishedYear: input.publishedYear,
+        pageCount: input.pageCount,
+        language: input.language,
+        description: input.description,
+        coverImage: input.coverImage,
+        authorId: input.authorId,
+        publisherId: input.publisherId,
+        // N:M seos — ühendame žanrid ID-de järgi
+        genres: { connect: input.genres.map((id) => ({ id })) },
+      },
+      include: { author: true, publisher: true, genres: true },
+    });
+  } catch (e) {
+    return handlePrismaError(e);
+  }
+}
+
+// Olemasoleva raamatu uuendamine — tagastab null kui raamatut ei leita
+export async function updateBook(id: number, input: UpdateBookInput): Promise<BookWithRelations | null> {
+  try {
+    // Žanrite uuendamine — asendame kõik olemasolevad žanrid uutega (set operatsioon)
+    const genresUpdate = input.genres
+      ? { genres: { set: input.genres.map((gId) => ({ id: gId })) } }
+      : {};
+
+    return await prisma.book.update({
+      where: { id },
+      data: {
+        ...(input.title !== undefined && { title: input.title }),
+        ...(input.isbn !== undefined && { isbn: input.isbn }),
+        ...(input.publishedYear !== undefined && { publishedYear: input.publishedYear }),
+        ...(input.pageCount !== undefined && { pageCount: input.pageCount }),
+        ...(input.language !== undefined && { language: input.language }),
+        ...(input.description !== undefined && { description: input.description }),
+        ...(input.coverImage !== undefined && { coverImage: input.coverImage }),
+        ...(input.authorId !== undefined && { authorId: input.authorId }),
+        ...(input.publisherId !== undefined && { publisherId: input.publisherId }),
+        ...genresUpdate,
+      },
+      include: { author: true, publisher: true, genres: true },
+    });
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return null;
+    }
+    return handlePrismaError(e);
+  }
+}
+
+// Raamatu kustutamine — tagastab false kui raamatut ei leita
+export async function deleteBook(id: number): Promise<boolean> {
+  try {
+    await prisma.book.delete({ where: { id } });
+    return true;
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return false;
+    }
+    return handlePrismaError(e);
+  }
 }

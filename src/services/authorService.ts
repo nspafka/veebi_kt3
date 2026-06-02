@@ -1,9 +1,7 @@
-import { Author } from '../models/Author';
-import { authors } from '../data';
+import { Author, Prisma } from '@prisma/client';
+import prisma from '../lib/prisma';
 import { CreateAuthorInput, UpdateAuthorInput } from '../validators/authorValidator';
-
-// Järgmise ID arvutamiseks
-let nextId = Math.max(...authors.map((a) => a.id)) + 1;
+import { handlePrismaError } from '../utils/prismaErrors';
 
 // Filtreerimise ja sorteerimise parameetrite tüüp
 export interface AuthorQueryParams {
@@ -13,64 +11,70 @@ export interface AuthorQueryParams {
   order?: string;
 }
 
-// Kõikide autorite tagastamine koos filtreerimise ja sorteerimisega
-export function getAllAuthors(params: AuthorQueryParams = {}): Author[] {
-  let result = [...authors];
+// Kõikide autorite päring koos filtreerimise, sorteerimise ja leheküljestamisega
+export async function getAllAuthors(
+  params: AuthorQueryParams,
+  page: number,
+  limit: number
+): Promise<{ data: Author[]; totalItems: number }> {
+  const where: Prisma.AuthorWhereInput = {};
 
-  // Filtreerimine perekonnanime järgi — otsib osalist vastet
+  // Perekonnanime osaline otsing
   if (params.lastName) {
-    const lastNameLower = params.lastName.toLowerCase();
-    result = result.filter((a) => a.lastName.toLowerCase().includes(lastNameLower));
+    where.lastName = { contains: params.lastName, mode: 'insensitive' };
   }
 
-  // Filtreerimine rahvuse järgi — otsib osalist vastet
+  // Rahvuse osaline otsing
   if (params.nationality) {
-    const nationalityLower = params.nationality.toLowerCase();
-    result = result.filter((a) => a.nationality.toLowerCase().includes(nationalityLower));
+    where.nationality = { contains: params.nationality, mode: 'insensitive' };
   }
 
-  // Sorteerimine perekonnanime järgi
-  if (params.sortBy === 'lastName') {
-    result.sort((a, b) => {
-      const comparison = a.lastName.toLowerCase().localeCompare(b.lastName.toLowerCase());
-      return params.order === 'desc' ? -comparison : comparison;
-    });
+  // Sorteerimise suund
+  const orderBy: Prisma.AuthorOrderByWithRelationInput =
+    params.sortBy === 'lastName'
+      ? { lastName: params.order === 'desc' ? 'desc' : 'asc' }
+      : { createdAt: 'desc' };
+
+  // Paralleelpäring — andmed ja koguarv korraga
+  const [data, totalItems] = await Promise.all([
+    prisma.author.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit }),
+    prisma.author.count({ where }),
+  ]);
+
+  return { data, totalItems };
+}
+
+// Ühe autori päring ID järgi
+export async function getAuthorById(id: number): Promise<Author | null> {
+  return prisma.author.findUnique({ where: { id } });
+}
+
+// Uue autori loomine
+export async function createAuthor(input: CreateAuthorInput): Promise<Author> {
+  return prisma.author.create({ data: input });
+}
+
+// Autori uuendamine — tagastab null kui ei leita
+export async function updateAuthor(id: number, input: UpdateAuthorInput): Promise<Author | null> {
+  try {
+    return await prisma.author.update({ where: { id }, data: input });
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return null;
+    }
+    return handlePrismaError(e);
   }
-
-  return result;
 }
 
-// Ühe autori otsimine ID järgi
-export function getAuthorById(id: number): Author | undefined {
-  return authors.find((a) => a.id === id);
-}
-
-// Uue autori lisamine
-export function createAuthor(input: CreateAuthorInput): Author {
-  const newAuthor: Author = {
-    id: nextId++,
-    ...input,
-    createdAt: new Date().toISOString(),
-  };
-  authors.push(newAuthor);
-  return newAuthor;
-}
-
-// Olemasoleva autori uuendamine — uuendab ainult saadetud väljad
-export function updateAuthor(id: number, input: UpdateAuthorInput): Author | undefined {
-  const index = authors.findIndex((a) => a.id === id);
-  if (index === -1) return undefined;
-
-  const updated: Author = { ...authors[index], ...input };
-  authors[index] = updated;
-  return updated;
-}
-
-// Autori kustutamine ID järgi
-export function deleteAuthor(id: number): boolean {
-  const index = authors.findIndex((a) => a.id === id);
-  if (index === -1) return false;
-
-  authors.splice(index, 1);
-  return true;
+// Autori kustutamine — tagastab false kui ei leita
+export async function deleteAuthor(id: number): Promise<boolean> {
+  try {
+    await prisma.author.delete({ where: { id } });
+    return true;
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return false;
+    }
+    return handlePrismaError(e);
+  }
 }
