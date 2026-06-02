@@ -7,14 +7,15 @@ import {
   deleteAuthor,
   AuthorQueryParams,
 } from '../services/authorService';
-import { getAllBooks } from '../services/bookService';
+import { getBooksByAuthorId } from '../services/bookService';
 import { createAuthorSchema, updateAuthorSchema } from '../validators/authorValidator';
-import { parsePagination, paginate } from '../utils/pagination';
+import { parsePagination, buildPaginationMeta } from '../utils/pagination';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
-// GET /api/v1/authors — autorite nimekiri koos filtreerimise ja leheküljestamisega
-router.get('/', (req: Request, res: Response) => {
+// GET /api/v1/authors — autorite nimekiri filtreerimise ja leheküljestamisega
+router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const params: AuthorQueryParams = {
     lastName: req.query.lastName as string | undefined,
     nationality: req.query.nationality as string | undefined,
@@ -22,119 +23,100 @@ router.get('/', (req: Request, res: Response) => {
     order: req.query.order as string | undefined,
   };
 
-  const filtered = getAllAuthors(params);
-
-  // Leheküljestamine autorite nimekirjale
   const { page, limit } = parsePagination(req.query.page, req.query.limit);
-  const result = paginate(filtered, page, limit);
+  const { data, totalItems } = await getAllAuthors(params, page, limit);
+  const pagination = buildPaginationMeta(totalItems, page, limit);
 
-  res.json(result);
-});
+  res.json({ data, pagination });
+}));
 
 // GET /api/v1/authors/:id — ühe autori andmed
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
-
   if (isNaN(id)) {
     res.status(400).json({ error: 'Vigane ID formaat' });
     return;
   }
 
-  const author = getAuthorById(id);
-
+  const author = await getAuthorById(id);
   if (!author) {
     res.status(404).json({ error: 'Autorit ei leitud' });
     return;
   }
 
   res.json(author);
-});
+}));
 
 // POST /api/v1/authors — uue autori lisamine
-router.post('/', (req: Request, res: Response) => {
+router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const result = createAuthorSchema.safeParse(req.body);
-
   if (!result.success) {
-    const details = result.error.errors.map((e) => ({
-      field: e.path.join('.'),
-      message: e.message,
-    }));
+    const details = result.error.errors.map((e) => ({ field: e.path.join('.'), message: e.message }));
     res.status(400).json({ error: 'Vigased andmed', details });
     return;
   }
 
-  const newAuthor = createAuthor(result.data);
+  const newAuthor = await createAuthor(result.data);
   res.status(201).json(newAuthor);
-});
+}));
 
-// PUT /api/v1/authors/:id — autori andmete uuendamine
-router.put('/:id', (req: Request, res: Response) => {
+// PUT /api/v1/authors/:id — autori uuendamine
+router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
-
   if (isNaN(id)) {
     res.status(400).json({ error: 'Vigane ID formaat' });
     return;
   }
 
   const result = updateAuthorSchema.safeParse(req.body);
-
   if (!result.success) {
-    const details = result.error.errors.map((e) => ({
-      field: e.path.join('.'),
-      message: e.message,
-    }));
+    const details = result.error.errors.map((e) => ({ field: e.path.join('.'), message: e.message }));
     res.status(400).json({ error: 'Vigased andmed', details });
     return;
   }
 
-  const updated = updateAuthor(id, result.data);
-
+  const updated = await updateAuthor(id, result.data);
   if (!updated) {
     res.status(404).json({ error: 'Autorit ei leitud' });
     return;
   }
 
   res.json(updated);
-});
+}));
 
 // DELETE /api/v1/authors/:id — autori kustutamine
-router.delete('/:id', (req: Request, res: Response) => {
+router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
-
   if (isNaN(id)) {
     res.status(400).json({ error: 'Vigane ID formaat' });
     return;
   }
 
-  const deleted = deleteAuthor(id);
-
+  const deleted = await deleteAuthor(id);
   if (!deleted) {
     res.status(404).json({ error: 'Autorit ei leitud' });
     return;
   }
 
   res.status(204).send();
-});
+}));
 
-// GET /api/v1/authors/:id/books — kõik raamatud konkreetselt autorilt
-router.get('/:id/books', (req: Request, res: Response) => {
+// GET /api/v1/authors/:id/books — kõik selle autori raamatud
+router.get('/:id/books', asyncHandler(async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
-
   if (isNaN(id)) {
     res.status(400).json({ error: 'Vigane ID formaat' });
     return;
   }
 
-  // Kontrollime et autor eksisteerib enne raamatute otsimist
-  const author = getAuthorById(id);
+  const author = await getAuthorById(id);
   if (!author) {
     res.status(404).json({ error: 'Autorit ei leitud' });
     return;
   }
 
-  // Filtreerime kõikidest raamatutest selle autori omad
-  const authorBooks = getAllBooks().filter((b) => b.authorId === id);
-  res.json(authorBooks);
-});
+  const books = await getBooksByAuthorId(id);
+  res.json(books);
+}));
 
 export default router;

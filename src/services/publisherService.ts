@@ -1,9 +1,7 @@
-import { Publisher } from '../models/Publisher';
-import { publishers } from '../data';
+import { Publisher, Prisma } from '@prisma/client';
+import prisma from '../lib/prisma';
 import { CreatePublisherInput, UpdatePublisherInput } from '../validators/publisherValidator';
-
-// Järgmise ID arvutamiseks
-let nextId = Math.max(...publishers.map((p) => p.id)) + 1;
+import { handlePrismaError } from '../utils/prismaErrors';
 
 // Filtreerimise parameetrite tüüp
 export interface PublisherQueryParams {
@@ -11,56 +9,68 @@ export interface PublisherQueryParams {
   country?: string;
 }
 
-// Kõikide kirjastuste tagastamine koos filtreerimisega
-export function getAllPublishers(params: PublisherQueryParams = {}): Publisher[] {
-  let result = [...publishers];
+// Kõikide kirjastuste päring koos filtreerimise ja leheküljestamisega
+export async function getAllPublishers(
+  params: PublisherQueryParams,
+  page: number,
+  limit: number
+): Promise<{ data: Publisher[]; totalItems: number }> {
+  const where: Prisma.PublisherWhereInput = {};
 
-  // Filtreerimine nime järgi — otsib osalist vastet
+  // Nime osaline otsing
   if (params.name) {
-    const nameLower = params.name.toLowerCase();
-    result = result.filter((p) => p.name.toLowerCase().includes(nameLower));
+    where.name = { contains: params.name, mode: 'insensitive' };
   }
 
-  // Filtreerimine riigi järgi — otsib osalist vastet
+  // Riigi osaline otsing
   if (params.country) {
-    const countryLower = params.country.toLowerCase();
-    result = result.filter((p) => p.country.toLowerCase().includes(countryLower));
+    where.country = { contains: params.country, mode: 'insensitive' };
   }
 
-  return result;
+  const [data, totalItems] = await Promise.all([
+    prisma.publisher.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.publisher.count({ where }),
+  ]);
+
+  return { data, totalItems };
 }
 
-// Ühe kirjastuse otsimine ID järgi
-export function getPublisherById(id: number): Publisher | undefined {
-  return publishers.find((p) => p.id === id);
+// Ühe kirjastuse päring ID järgi
+export async function getPublisherById(id: number): Promise<Publisher | null> {
+  return prisma.publisher.findUnique({ where: { id } });
 }
 
-// Uue kirjastuse lisamine
-export function createPublisher(input: CreatePublisherInput): Publisher {
-  const newPublisher: Publisher = {
-    id: nextId++,
-    ...input,
-    createdAt: new Date().toISOString(),
-  };
-  publishers.push(newPublisher);
-  return newPublisher;
+// Uue kirjastuse loomine
+export async function createPublisher(input: CreatePublisherInput): Promise<Publisher> {
+  return prisma.publisher.create({ data: input });
 }
 
-// Olemasoleva kirjastuse uuendamine
-export function updatePublisher(id: number, input: UpdatePublisherInput): Publisher | undefined {
-  const index = publishers.findIndex((p) => p.id === id);
-  if (index === -1) return undefined;
-
-  const updated: Publisher = { ...publishers[index], ...input };
-  publishers[index] = updated;
-  return updated;
+// Kirjastuse uuendamine — tagastab null kui ei leita
+export async function updatePublisher(id: number, input: UpdatePublisherInput): Promise<Publisher | null> {
+  try {
+    return await prisma.publisher.update({ where: { id }, data: input });
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return null;
+    }
+    return handlePrismaError(e);
+  }
 }
 
-// Kirjastuse kustutamine ID järgi
-export function deletePublisher(id: number): boolean {
-  const index = publishers.findIndex((p) => p.id === id);
-  if (index === -1) return false;
-
-  publishers.splice(index, 1);
-  return true;
+// Kirjastuse kustutamine — tagastab false kui ei leita
+export async function deletePublisher(id: number): Promise<boolean> {
+  try {
+    await prisma.publisher.delete({ where: { id } });
+    return true;
+  } catch (e) {
+    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'P2025') {
+      return false;
+    }
+    return handlePrismaError(e);
+  }
 }
