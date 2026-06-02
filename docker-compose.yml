@@ -10,8 +10,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: raamatukogu
     ports:
-      # Kaardistame konteineri pordi 5432 hosti pordile 5432
-      - "5432:5432"
+      # Hosti port 6432 — Windows Hyper-V reserveerib 5341-5540 vahemiku (sh 5432)
+      - "6432:5432"
     volumes:
       # Püsiv maht et andmed ei kaoks konteineri taaskäivitusel
       - postgres_data:/var/lib/postgresql/data
