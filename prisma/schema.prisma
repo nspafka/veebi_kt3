@@ -1,0 +1,98 @@
+// Prisma skeemi konfiguratsioon
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Autor — ühel autoril võib olla mitu raamatut (1:N)
+model Author {
+  id          Int      @id @default(autoincrement())
+  firstName   String
+  lastName    String
+  birthYear   Int
+  nationality String
+  biography   String?
+  createdAt   DateTime @default(now())
+
+  // Seosed
+  books Book[]
+
+  // Indeks perekonnanime järgi otsimise kiirendamiseks
+  @@index([lastName])
+}
+
+// Kirjastus — ühel kirjastusel võib olla mitu raamatut (1:N)
+model Publisher {
+  id          Int      @id @default(autoincrement())
+  name        String
+  country     String
+  foundedYear Int
+  website     String?
+  createdAt   DateTime @default(now())
+
+  // Seosed
+  books Book[]
+
+  // Indeks nime järgi otsimise kiirendamiseks
+  @@index([name])
+}
+
+// Raamat — kuulub ühele autorile ja kirjastusele, võib olla mitmes žanris (N:M)
+model Book {
+  id            Int      @id @default(autoincrement())
+  title         String
+  isbn          String   @unique
+  publishedYear Int
+  pageCount     Int
+  language      String
+  description   String
+  coverImage    String?
+  authorId      Int
+  publisherId   Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Seosed
+  author    Author    @relation(fields: [authorId], references: [id])
+  publisher Publisher @relation(fields: [publisherId], references: [id])
+  // N:M seos žanritega läbi vaheltabeli
+  genres  Genre[]   @relation("BookGenres")
+  reviews Review[]
+
+  // Indeksid filtreerimise ja sorteerimise kiirendamiseks
+  @@index([title])
+  @@index([publishedYear])
+  @@index([language])
+  @@index([authorId])
+  @@index([publisherId])
+}
+
+// Žanr — ühel žanril võib olla mitu raamatut ja vastupidi (N:M)
+model Genre {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  // Seosed — Prisma loob automaatselt vaheltabeli _BookGenres
+  books Book[] @relation("BookGenres")
+}
+
+// Arvustus — kuulub ühele raamatule (N:1), kustutatakse koos raamatuga
+model Review {
+  id        Int      @id @default(autoincrement())
+  bookId    Int
+  userName  String
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+
+  // Cascade delete — arvustus kustutatakse automaatselt kui raamat kustutatakse
+  book Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  // Indeksid kiireks filtreerimiseks hinde ja raamatu järgi
+  @@index([bookId])
+  @@index([rating])
+}

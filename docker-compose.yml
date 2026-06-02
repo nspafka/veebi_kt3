@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16
+    container_name: raamatukogu_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: raamatukogu
+    ports:
+      # Kaardistame konteineri pordi 5432 hosti pordile 5432
+      - "5432:5432"
+    volumes:
+      # Püsiv maht et andmed ei kaoks konteineri taaskäivitusel
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
