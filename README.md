@@ -2,7 +2,7 @@
 
 RESTful API raamatukogu infosüsteemile — TypeScript + Express.js + Prisma + PostgreSQL.
 
-**Autor:** nspafka &nbsp;|&nbsp; **Kursus:** RAM0541_2026_kevad &nbsp;|&nbsp; **Server:** `http://localhost:3000`
+**Autor:** nspafka &nbsp;|&nbsp; **Kursus:** RAM0541_2026_kevad &nbsp;|&nbsp; **Server:** `http://localhost:3000` &nbsp;|&nbsp; [AI kasutus](AI_USAGE.md)
 
 ---
 
@@ -643,5 +643,6 @@ curl http://localhost:3000/api/v1/health
 | `feature/prisma-setup` | Prisma skeem, migratsioonid, seed, Docker |
 | `feature/prisma-integration` | Mock teenuste asendamine Prismaga |
 | `feature/documentation` | README, API dokumentatsioon |
+| `small_fixes` | README viimistlus |
 
 </details>
